@@ -1,0 +1,95 @@
+import numpy as np
+import cv2
+import shap
+import matplotlib.pyplot as plt
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.utils import to_categorical
+from sklearn.model_selection import train_test_split
+import os
+from IPython.display import Image
+
+def preprocess_thermal_image(image_path, target_size=(224, 224)):
+    img = cv2.imread(image_path)
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img_resized = cv2.resize(img, target_size)
+    img_normalized = img_resized.astype(np.float32) / 255.0
+    img_expanded = np.expand_dims(img_normalized, axis=-1)
+    return img_expanded
+folder_path = "/content/drive/MyDrive/Thermal_leaf_dataset/train/leaf_folder"
+image_files = [f for f in os.listdir(folder_path) if f.endswith('.jpg') or f.endswith('.png')]
+
+X = []
+y = []
+
+for image_file in image_files:
+    image_path = os.path.join(folder_path, image_file)
+    X.append(preprocess_thermal_image(image_path))
+    y.append(0)  # Assume all images have the same label for this example
+
+X = np.array(X)
+y = np.array(y)
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+y_train_cat = to_categorical(y_train, num_classes=2)
+y_test_cat = to_categorical(y_test, num_classes=2)
+
+model = Sequential([
+    Conv2D(32, (3, 3), activation='relu', input_shape=(224, 224, 1)),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation='relu'),
+    Flatten(),
+    Dense(64, activation='relu'),
+    Dropout(0.5),
+    Dense(2, activation='softmax')
+])
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+history = model.fit(X_train, y_train_cat, epochs=20, validation_split=0.2, verbose=1)
+
+test_loss, test_accuracy = model.evaluate(X_test, y_test_cat, verbose=0)
+print(f"Test accuracy: {test_accuracy:.4f}")
+
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], label='Training Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.title('Model Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.title('Model Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+
+plt.tight_layout()
+plt.savefig('training_history.png')
+plt.close()
+
+explainer = shap.GradientExplainer(model, X_train[:100])
+
+shap_values = explainer.shap_values(X_test[:1])
+
+
+shap.image_plot(shap_values, -X_test[:1], show=False)
+plt.savefig('shap_plot.png')
+plt.close()
+
+print("SHAP analysis complete. Plot saved as 'shap_plot.png'.")
+
+
+display(Image('shap_plot.png'))
+
+
+print("SHAP values shape:", [sv.shape for sv in shap_values])
+print("SHAP values for first class:")
+print(shap_values[0][0])
